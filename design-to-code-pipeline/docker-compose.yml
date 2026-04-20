@@ -1,0 +1,6 @@
+# Redis for BullMQ job queue. Jobs and logs are stored in MongoDB (see backend .env).
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
