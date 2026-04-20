@@ -1,17 +1,17 @@
 # Design → Code pipeline
 
-End-to-end MVP that turns a Jira ticket (plus optional Figma context) into a GitHub branch, commits, pull request, optional deploy hook, and rollback on failure. A React dashboard shows each stage, live logs, and WebSocket updates.
+End-to-end MVP that turns a Jira ticket (plus optional Figma context) into a **Bitbucket Cloud** branch, commits, pull request, optional deploy hook, and rollback on failure. A React dashboard shows each stage, live logs, and WebSocket updates.
 
 ## Architecture
 
-- **Backend**: Node.js + TypeScript, Express, Prisma (PostgreSQL), BullMQ (Redis), Socket.IO, OpenAI, Octokit, Axios.
+- **Backend**: Node.js + TypeScript, Express, **MongoDB** (official driver), BullMQ (Redis), Socket.IO, OpenAI, Bitbucket REST API (Axios + `form-data` for commits).
 - **Frontend**: React + TypeScript + Vite + Tailwind + Socket.IO client.
 - **Secrets**: Loaded only on the server from `.env`. They are never sent to the browser or embedded in AI system prompts beyond what the backend services already use with provider APIs.
 
 ## Prerequisites
 
 - Node.js 20+
-- PostgreSQL and Redis (see `docker-compose.yml` in this folder for a quick pair of containers).
+- **MongoDB Atlas** (or other MongoDB) and **Redis** (`docker compose` in this folder starts Redis only).
 
 ## 1. Start infrastructure
 
@@ -21,15 +21,13 @@ From `design-to-code-pipeline/`:
 docker compose up -d
 ```
 
-Copy `backend/.env.example` to `backend/.env` and adjust values (Jira host, tokens, GitHub repo access, OpenAI key).
+Copy `backend/.env.example` to `backend/.env` and set **MongoDB**, **Jira**, **Bitbucket** (`BITBUCKET_USERNAME` + `BITBUCKET_API_TOKEN`), **Figma**, **OpenAI**, and Redis.
 
 ## 2. Backend
 
 ```bash
 cd backend
 npm install
-npx prisma generate
-npx prisma db push
 npm run dev
 ```
 
@@ -37,7 +35,7 @@ The API listens on `PORT` (default `4000`) and exposes:
 
 - `GET /health` — liveness.
 - `GET /api/jobs` — list jobs (newest first).
-- `POST /api/jobs` — body `{ "ticketId": "PROJ-123", "repo": "org/repo" }`.
+- `POST /api/jobs` — body `{ "ticketId": "PROJ-123", "repo": "workspace/repo-slug" }` (**Bitbucket** workspace and repository slug).
 - `GET /api/jobs/:jobId` — job detail with ordered steps and logs.
 - `POST /api/jobs/:jobId/retry` — reset steps and re-queue the pipeline.
 
@@ -56,7 +54,7 @@ Vite proxies `/api` and `/socket.io` to `http://localhost:4000` during developme
 ## Security notes
 
 - Use **read-only** Jira and Figma tokens where possible.
-- Use a **fine-scoped GitHub PAT** limited to the repositories this system may change.
+- Use a **Bitbucket app password** (or scoped token) with only the repo permissions you need.
 - Logging uses structured redaction for common secret paths; avoid logging raw ticket payloads that might contain pasted credentials.
 
 ## Pipeline stages

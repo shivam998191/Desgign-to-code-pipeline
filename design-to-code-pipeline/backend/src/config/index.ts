@@ -3,6 +3,10 @@ import { z } from "zod";
 
 loadEnv();
 
+if (!process.env.BITBUCKET_API_TOKEN && process.env.BITBUCKET_TOKEN) {
+  process.env.BITBUCKET_API_TOKEN = process.env.BITBUCKET_TOKEN;
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   PORT: z.coerce.number().default(4000),
@@ -12,11 +16,16 @@ const envSchema = z.object({
   REDIS_HOST: z.string().min(1),
   REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional(),
-  JIRA_BASE_URL: z.string().url(),
+  JIRA_BASE_URL: z
+    .string()
+    .url()
+    .describe("Jira Cloud site root only, e.g. https://paytmpayments.atlassian.net (not a /browse/... issue URL)"),
   JIRA_EMAIL: z.string().email(),
   JIRA_API_TOKEN: z.string().min(1),
   FIGMA_API_TOKEN: z.string().min(1),
-  GITHUB_TOKEN: z.string().min(1),
+  BITBUCKET_USERNAME: z.string().min(1).describe("Atlassian / Bitbucket username (usually email)"),
+  BITBUCKET_API_TOKEN: z.string().min(1).describe("Bitbucket app password or API token with repo write"),
+  BITBUCKET_DEFAULT_BRANCH: z.string().min(1).default("develop"),
   OPENAI_API_KEY: z.string().min(1),
   OPENAI_MODEL: z.string().default("gpt-4o-mini"),
   DEPLOY_WEBHOOK_URL: z.string().url().optional(),

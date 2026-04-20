@@ -3,15 +3,15 @@
  * Nothing here should forward secrets to callers or model prompts beyond service boundaries.
  */
 import { analyzeRequirements, generateCodePatch } from "../modules/ai/aiService.js";
-import { deploy as deployEnv, rollbackDeploy } from "../modules/deploy/deployService.js";
-import { fetchFigmaFileStructured } from "../modules/figma/figmaService.js";
 import {
   createBranchFromDefault,
   createPullRequest,
   deleteBranch,
   fetchRepoTreeSummary,
   upsertTextFiles,
-} from "../modules/github/githubService.js";
+} from "../modules/bitbucket/bitbucketService.js";
+import { deploy as deployEnv, rollbackDeploy } from "../modules/deploy/deployService.js";
+import { fetchFigmaFileStructured } from "../modules/figma/figmaService.js";
 import {
   extractFigmaLinksFromTicket,
   fetchIssue,
