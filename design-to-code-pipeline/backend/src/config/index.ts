@@ -11,9 +11,25 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   PORT: z.coerce.number().default(4000),
   FRONTEND_ORIGIN: z.string().default("http://localhost:5173"),
-  MONGODB_URI: z.string().min(1).describe("MongoDB connection string (mongodb:// or mongodb+srv://)"),
+  /** When true, jobs are kept in process memory only (no MONGODB_URI needed; data is lost on restart). */
+  DISABLE_MONGODB: z
+    .union([z.string(), z.undefined()])
+    .transform((v) => {
+      if (v === undefined || v === "") return false;
+      const s = v.toLowerCase();
+      return s === "true" || s === "1" || s === "yes";
+    }),
+  MONGODB_URI: z.string().default("").describe("MongoDB connection string; not used when DISABLE_MONGODB=true"),
   MONGODB_DB_NAME: z.string().min(1).default("design_pipeline"),
-  REDIS_HOST: z.string().min(1),
+  /** When true, jobs run in-process (no Redis/BullMQ). For local testing only. */
+  DISABLE_REDIS: z
+    .union([z.string(), z.undefined()])
+    .transform((v) => {
+      if (v === undefined || v === "") return false;
+      const s = v.toLowerCase();
+      return s === "true" || s === "1" || s === "yes";
+    }),
+  REDIS_HOST: z.string().min(1).default("127.0.0.1"),
   REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional(),
   JIRA_BASE_URL: z
@@ -43,6 +59,10 @@ export function getConfig(): AppConfig {
     const msg = parsed.error.flatten().fieldErrors;
     throw new Error(`Invalid environment: ${JSON.stringify(msg)}`);
   }
-  cached = parsed.data;
+  const data = parsed.data;
+  if (!data.DISABLE_MONGODB && !data.MONGODB_URI.trim()) {
+    throw new Error("Invalid environment: MONGODB_URI is required unless DISABLE_MONGODB=true");
+  }
+  cached = data;
   return cached;
 }

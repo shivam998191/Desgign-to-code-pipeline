@@ -1,10 +1,21 @@
 import { randomUUID } from "node:crypto";
 import type { UpdateFilter } from "mongodb";
+import { getConfig } from "../../config/index.js";
 import { getDb } from "../../db/mongo.js";
 import type { JobDoc, JobLogDoc, JobRow, JobStatus, JobStepDoc, StepStatus } from "../../db/types.js";
 import { PIPELINE_STAGES, type PipelineStage } from "../../shared/pipeline.js";
 
 const COL = "jobs";
+
+const memoryById = new Map<string, JobDoc>();
+
+function cloneDoc(doc: JobDoc): JobDoc {
+  return structuredClone(doc);
+}
+
+function memoryEnabled(): boolean {
+  return getConfig().DISABLE_MONGODB;
+}
 
 type JobMongoDoc = JobDoc & { _id?: unknown };
 
@@ -48,14 +59,26 @@ function toRow(doc: JobDoc | null): JobRow | null {
 }
 
 export async function createJobRecord(input: { ticketId: string; repo: string }): Promise<JobRow> {
-  const db = await getDb();
   const id = randomUUID();
   const doc = emptyJobDoc({ id, ticketId: input.ticketId, repo: input.repo });
+  if (memoryEnabled()) {
+    memoryById.set(id, cloneDoc(doc));
+    return toRow(doc)!;
+  }
+  const db = await getDb();
   await db.collection(COL).insertOne(doc);
   return toRow(doc)!;
 }
 
 export async function getJob(jobId: string): Promise<JobRow | null> {
+  if (memoryEnabled()) {
+    const stored = memoryById.get(jobId);
+    if (!stored) return null;
+    const doc = cloneDoc(stored);
+    const logs = [...(doc.logs ?? [])].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).slice(-500);
+    const steps = [...(doc.steps ?? [])].sort((a, b) => a.stepName.localeCompare(b.stepName));
+    return toRow({ ...doc, logs, steps });
+  }
   const db = await getDb();
   const raw = await db.collection<JobMongoDoc>(COL).findOne({ id: jobId });
   if (!raw) return null;
@@ -66,6 +89,16 @@ export async function getJob(jobId: string): Promise<JobRow | null> {
 }
 
 export async function listJobs(take = 50): Promise<JobRow[]> {
+  if (memoryEnabled()) {
+    const rows = [...memoryById.values()]
+      .map((d) => cloneDoc(d))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, take);
+    return rows.map((d) => {
+      const steps = [...(d.steps ?? [])].sort((a, b) => a.stepName.localeCompare(b.stepName));
+      return toRow({ ...d, steps, logs: [] })!;
+    });
+  }
   const db = await getDb();
   const cursor = db
     .collection<JobMongoDoc>(COL)
@@ -92,11 +125,18 @@ export async function updateJobFields(
     metadata: unknown | null;
   }>,
 ): Promise<void> {
-  const db = await getDb();
   const $set: Record<string, unknown> = { updatedAt: new Date() };
   for (const [k, v] of Object.entries(data)) {
     if (v !== undefined) $set[k] = v;
   }
+  if (memoryEnabled()) {
+    const cur = memoryById.get(jobId);
+    if (!cur) return;
+    const next = { ...cloneDoc(cur), ...$set } as JobDoc;
+    memoryById.set(jobId, next);
+    return;
+  }
+  const db = await getDb();
   await db.collection(COL).updateOne({ id: jobId }, { $set });
 }
 
@@ -105,24 +145,48 @@ export async function updateStep(
   stepName: PipelineStage,
   data: Partial<{ status: StepStatus; startedAt: Date | null; endedAt: Date | null; errorMessage: string | null; attempt: number }>,
 ): Promise<void> {
-  const db = await getDb();
   const $set: Record<string, unknown> = { updatedAt: new Date() };
   if (data.status !== undefined) $set["steps.$[s].status"] = data.status;
   if (data.startedAt !== undefined) $set["steps.$[s].startedAt"] = data.startedAt;
   if (data.endedAt !== undefined) $set["steps.$[s].endedAt"] = data.endedAt;
   if (data.errorMessage !== undefined) $set["steps.$[s].errorMessage"] = data.errorMessage;
   if (data.attempt !== undefined) $set["steps.$[s].attempt"] = data.attempt;
+  if (memoryEnabled()) {
+    const cur = memoryById.get(jobId);
+    if (!cur) return;
+    const doc = cloneDoc(cur);
+    const step = doc.steps.find((s) => s.stepName === stepName);
+    if (!step) return;
+    if (data.status !== undefined) step.status = data.status;
+    if (data.startedAt !== undefined) step.startedAt = data.startedAt;
+    if (data.endedAt !== undefined) step.endedAt = data.endedAt;
+    if (data.errorMessage !== undefined) step.errorMessage = data.errorMessage;
+    if (data.attempt !== undefined) step.attempt = data.attempt;
+    doc.updatedAt = new Date();
+    memoryById.set(jobId, doc);
+    return;
+  }
+  const db = await getDb();
   await db.collection(COL).updateOne({ id: jobId }, { $set }, { arrayFilters: [{ "s.stepName": stepName }] });
 }
 
 export async function appendLog(jobId: string, level: string, message: string): Promise<void> {
-  const db = await getDb();
   const entry: JobLogDoc = {
     id: randomUUID(),
     level,
     message,
     createdAt: new Date(),
   };
+  if (memoryEnabled()) {
+    const cur = memoryById.get(jobId);
+    if (!cur) return;
+    const doc = cloneDoc(cur);
+    doc.logs = [...(doc.logs ?? []), entry].slice(-600);
+    doc.updatedAt = new Date();
+    memoryById.set(jobId, doc);
+    return;
+  }
+  const db = await getDb();
   const update: UpdateFilter<JobMongoDoc> = {
     $push: { logs: { $each: [entry], $slice: -600 } },
     $set: { updatedAt: new Date() },
@@ -131,7 +195,6 @@ export async function appendLog(jobId: string, level: string, message: string): 
 }
 
 export async function resetJobForRetry(jobId: string): Promise<void> {
-  const db = await getDb();
   const steps: JobStepDoc[] = PIPELINE_STAGES.map((name) => ({
     id: randomUUID(),
     stepName: name,
@@ -141,19 +204,22 @@ export async function resetJobForRetry(jobId: string): Promise<void> {
     errorMessage: null,
     attempt: 0,
   }));
-  await db.collection(COL).updateOne(
-    { id: jobId },
-    {
-      $set: {
-        steps,
-        status: "PENDING",
-        currentStage: "FETCH_JIRA",
-        errorMessage: null,
-        prUrl: null,
-        deployStatus: null,
-        branchName: null,
-        updatedAt: new Date(),
-      },
-    },
-  );
+  const $set = {
+    steps,
+    status: "PENDING" as JobStatus,
+    currentStage: "FETCH_JIRA",
+    errorMessage: null,
+    prUrl: null,
+    deployStatus: null,
+    branchName: null,
+    updatedAt: new Date(),
+  };
+  if (memoryEnabled()) {
+    const cur = memoryById.get(jobId);
+    if (!cur) return;
+    memoryById.set(jobId, { ...cloneDoc(cur), ...$set });
+    return;
+  }
+  const db = await getDb();
+  await db.collection(COL).updateOne({ id: jobId }, { $set });
 }

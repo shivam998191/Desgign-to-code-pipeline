@@ -59,7 +59,12 @@ void (async () => {
     rootLogger.error({ err }, "MongoDB connection failed");
     process.exit(1);
   }
-  createPipelineWorker();
+  const worker = createPipelineWorker();
+  if (worker) {
+    rootLogger.info("BullMQ worker started (Redis)");
+  } else {
+    rootLogger.warn("Pipeline queue: inline mode — set DISABLE_REDIS=false and run Redis for production-style queuing");
+  }
   server.listen(cfg.PORT, () => {
     rootLogger.info({ port: cfg.PORT }, "API and WebSocket listening");
   });

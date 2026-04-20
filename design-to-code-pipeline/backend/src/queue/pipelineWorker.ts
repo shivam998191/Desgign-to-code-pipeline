@@ -1,4 +1,5 @@
 import { Worker } from "bullmq";
+import { getConfig } from "../config/index.js";
 import { createLogger } from "../logger/index.js";
 import { runPipeline } from "../modules/orchestrator/orchestrator.js";
 import { createRedisConnection } from "./connection.js";
@@ -7,7 +8,12 @@ const log = createLogger("pipeline-worker");
 
 const QUEUE_NAME = "design-pipeline";
 
-export function createPipelineWorker(): Worker<{ jobId: string }> {
+export function createPipelineWorker(): Worker<{ jobId: string }> | null {
+  const cfg = getConfig();
+  if (cfg.DISABLE_REDIS) {
+    log.warn("DISABLE_REDIS=true — BullMQ worker not started (pipelines run inline)");
+    return null;
+  }
   const connection = createRedisConnection();
   const worker = new Worker<{ jobId: string }>(
     QUEUE_NAME,

@@ -11,7 +11,7 @@ End-to-end MVP that turns a Jira ticket (plus optional Figma context) into a **B
 ## Prerequisites
 
 - Node.js 20+
-- **MongoDB Atlas** (or other MongoDB) and **Redis** (`docker compose` in this folder starts Redis only).
+- **MongoDB Atlas** (or other MongoDB). **Redis** is optional for local testing: set **`DISABLE_REDIS=true`** in `backend/.env` to run pipelines in-process without BullMQ. For production-style retries/queuing, use Redis (`docker compose` in this folder) and **`DISABLE_REDIS=false`**.
 
 ## 1. Start infrastructure
 

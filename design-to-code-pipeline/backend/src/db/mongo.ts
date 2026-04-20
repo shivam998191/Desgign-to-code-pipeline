@@ -17,6 +17,9 @@ export function getMongoClient(): MongoClient {
 }
 
 export async function getDb(): Promise<Db> {
+  if (getConfig().DISABLE_MONGODB) {
+    throw new Error("getDb() must not be used when DISABLE_MONGODB=true");
+  }
   if (globalForMongo.mongoDb) return globalForMongo.mongoDb;
   const cfg = getConfig();
   const client = getMongoClient();
@@ -29,5 +32,10 @@ export async function getDb(): Promise<Db> {
 }
 
 export async function connectMongo(): Promise<void> {
+  const cfg = getConfig();
+  if (cfg.DISABLE_MONGODB) {
+    log.warn("MongoDB disabled — using in-memory job store (data is lost on process exit)");
+    return;
+  }
   await getDb();
 }
