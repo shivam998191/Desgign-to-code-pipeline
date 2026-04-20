@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { deserialize, serialize } from "node:v8";
 import type { UpdateFilter } from "mongodb";
 import { getConfig } from "../../config/index.js";
 import { getDb } from "../../db/mongo.js";
@@ -10,7 +11,10 @@ const COL = "jobs";
 const memoryById = new Map<string, JobDoc>();
 
 function cloneDoc(doc: JobDoc): JobDoc {
-  return structuredClone(doc);
+  if (typeof globalThis.structuredClone === "function") {
+    return globalThis.structuredClone(doc);
+  }
+  return deserialize(serialize(doc)) as JobDoc;
 }
 
 function memoryEnabled(): boolean {

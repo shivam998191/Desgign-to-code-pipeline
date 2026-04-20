@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "dev": "NODE_OPTIONS=--experimental-global-webcrypto vite",
+    "build": "tsc --noEmit && NODE_OPTIONS=--experimental-global-webcrypto vite build",
+    "preview": "NODE_OPTIONS=--experimental-global-webcrypto vite preview"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

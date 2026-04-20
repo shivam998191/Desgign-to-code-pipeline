@@ -1,4 +1,5 @@
 import axios, { type AxiosInstance } from "axios";
+import https from "node:https";
 import { getConfig } from "../../config/index.js";
 import { createLogger } from "../../logger/index.js";
 
@@ -17,6 +18,11 @@ export type JiraTicketPayload = {
 function buildClient(): AxiosInstance {
   const cfg = getConfig();
   const auth = Buffer.from(`${cfg.JIRA_EMAIL}:${cfg.JIRA_API_TOKEN}`).toString("base64");
+  const httpsAgent = cfg.JIRA_TLS_INSECURE ? new https.Agent({ rejectUnauthorized: false }) : undefined;
+  if (cfg.JIRA_TLS_INSECURE) {
+    log.warn("JIRA_TLS_INSECURE=true — TLS certificate verification is disabled for Jira requests");
+  }
+
   return axios.create({
     baseURL: cfg.JIRA_BASE_URL.replace(/\/$/, ""),
     headers: {
@@ -24,6 +30,7 @@ function buildClient(): AxiosInstance {
       Accept: "application/json",
       "Content-Type": "application/json",
     },
+    httpsAgent,
     timeout: 30_000,
   });
 }

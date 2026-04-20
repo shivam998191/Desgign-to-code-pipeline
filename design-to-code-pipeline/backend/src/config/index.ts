@@ -38,6 +38,13 @@ const envSchema = z.object({
     .describe("Jira Cloud site root only, e.g. https://paytmpayments.atlassian.net (not a /browse/... issue URL)"),
   JIRA_EMAIL: z.string().email(),
   JIRA_API_TOKEN: z.string().min(1),
+  JIRA_TLS_INSECURE: z
+    .union([z.string(), z.undefined()])
+    .transform((v) => {
+      if (v === undefined || v === "") return false;
+      const s = v.toLowerCase();
+      return s === "true" || s === "1" || s === "yes";
+    }),
   FIGMA_API_TOKEN: z.string().min(1),
   BITBUCKET_USERNAME: z.string().min(1).describe("Atlassian / Bitbucket username (usually email)"),
   BITBUCKET_API_TOKEN: z.string().min(1).describe("Bitbucket app password or API token with repo write"),
