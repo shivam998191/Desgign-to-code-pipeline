@@ -2,3 +2,7 @@ node_modules/
 .env
 *.log
 .DS_Store
+
+# Firebase service account (never commit secrets)
+backend/serviceAccountKey.json
+**/serviceAccountKey.json

@@ -1,13 +1,34 @@
-import { UserConfigModel } from '../models/userConfig.model.js';
+import {
+  getLatestUserConfig,
+  upsertUserConfigDocument,
+} from '../repositories/userConfig.repository.js';
+import {
+  mergeAndValidateUserConfig,
+  parseStoredUserConfigCore,
+} from '../schemas/userConfig.schema.js';
 
 export async function getUserConfig(_req, res) {
   try {
-    const config = await UserConfigModel.findOne({}).sort({ updatedAt: -1 }).lean();
-    if (!config) {
+    const raw = await getLatestUserConfig();
+    if (!raw) {
       res.status(200).json(null);
       return;
     }
-    res.status(200).json(config);
+    const parsed = parseStoredUserConfigCore(raw);
+    if (!parsed.success) {
+      res.status(500).json({
+        message: 'Stored user config does not match schema',
+        issues: parsed.error.flatten(),
+      });
+      return;
+    }
+    const { createdAt, updatedAt, _id } = raw;
+    res.status(200).json({
+      _id,
+      ...parsed.data,
+      ...(createdAt !== undefined ? { createdAt } : {}),
+      ...(updatedAt !== undefined ? { updatedAt } : {}),
+    });
   } catch (error) {
     res.status(500).json({
       message: 'Failed to fetch user config',
@@ -23,17 +44,17 @@ export async function upsertUserConfig(req, res) {
       return;
     }
 
-    const config = await UserConfigModel.findOneAndUpdate(
-      {},
-      req.body,
-      {
-        new: true,
-        upsert: true,
-        setDefaultsOnInsert: true,
-        runValidators: true,
-      },
-    ).lean();
+    const existing = await getLatestUserConfig();
+    const result = mergeAndValidateUserConfig(existing, req.body);
+    if (!result.success) {
+      res.status(400).json({
+        message: 'Invalid user config (schema validation failed)',
+        issues: result.error.flatten(),
+      });
+      return;
+    }
 
+    const config = await upsertUserConfigDocument(result.data);
     res.status(200).json(config);
   } catch (error) {
     res.status(500).json({
