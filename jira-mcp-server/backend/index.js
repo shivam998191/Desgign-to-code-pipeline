@@ -4,6 +4,9 @@ import dotenv from 'dotenv';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ensureDefaultPipelineUser } from './repositories/user.repository.js';
+import internalPipelineRoutes from './routes/internalPipeline.routes.js';
+import jiraTicketRoutes from './routes/jiraTicket.routes.js';
 import userConfigRoutes from './routes/userConfig.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -22,6 +25,8 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/api', userConfigRoutes);
+app.use('/api', jiraTicketRoutes);
+app.use('/api/internal', internalPipelineRoutes);
 
 app.use((err, _req, res, _next) => {
   res.status(500).json({
@@ -33,11 +38,14 @@ app.use((err, _req, res, _next) => {
 function startServer() {
   app.listen(PORT, () => {
     console.log(`Backend API listening on http://localhost:${PORT}`);
-    console.log('Persistence: Firebase Firestore (collection userConfigs, document default)');
+    console.log('Persistence: Firebase Firestore (userConfigs, users, jiraTickets)');
   });
 }
 
 try {
+  void ensureDefaultPipelineUser().catch((err) => {
+    console.error('ensureDefaultPipelineUser failed:', err);
+  });
   startServer();
 } catch (error) {
   console.error('Failed to start backend API:', error);

@@ -1,6 +1,8 @@
 import * as z from 'zod/v4';
 import { JenkinsBuildPipeline } from '../services/jenkinsBuildPipeline.js';
+import { pipelineTracker } from '../services/pipelineTracker.js';
 import { logger } from '../utils/logger.js';
+import { normalizeIssueKey } from '../utils/issueKey.js';
 import {
   RepoConfigError,
   formatBuildConfirmationPrompt,
@@ -68,11 +70,17 @@ export function registerJenkinsBuildTools(mcpServer) {
           .string()
           .optional()
           .describe('Optional Jira key for display only in confirmation text, e.g. IPG-1096'),
+        issueKey: z
+          .string()
+          .optional()
+          .describe('Optional Jira key for pipeline dashboard (same as jiraId if you pass one).'),
         ...buildParamOverrides,
       },
     },
     async (input) => {
       logger.toolCall('jenkins_prepare_build', { repoKey: input.repoKey, jiraId: input.jiraId });
+      const tk = normalizeIssueKey(input.issueKey || input.jiraId);
+      if (tk) await pipelineTracker.log(tk, 'Preparing Jenkins build parameters…');
       try {
         const merged = mergeJenkinsBuildParams(input.repoKey, {
           params: input.params,
@@ -137,13 +145,23 @@ export function registerJenkinsBuildTools(mcpServer) {
           .positive()
           .optional()
           .describe('Millis to wait for job to finish (default 600000)'),
+        issueKey: z
+          .string()
+          .optional()
+          .describe('Jira key for pipeline dashboard. On successful build the ticket is marked CLOSED.'),
       },
     },
     async (input) => {
       logger.toolCall('jenkins_run_build', { repoKey: input.repoKey });
+      const tk = normalizeIssueKey(input.issueKey);
+      if (tk) await pipelineTracker.ensure(tk);
       const conn = resolveJenkinsBuildConnection(input.repoKey);
       if (!conn) {
         return { content: [{ type: 'text', text: formatToolJson(notConfiguredPayload()) }], isError: true };
+      }
+      if (tk) {
+        await pipelineTracker.log(tk, 'Starting Jenkins build…');
+        await pipelineTracker.stage(tk, 'BUILD', 'IN_PROGRESS');
       }
       let params;
       try {
@@ -167,6 +185,10 @@ export function registerJenkinsBuildTools(mcpServer) {
           waitForBuildTimeoutMs: input.waitForBuildTimeoutMs,
           waitForCompletionTimeoutMs: input.waitForCompletionTimeoutMs,
         });
+        if (tk) {
+          await pipelineTracker.log(tk, 'Jenkins build finished with SUCCESS.');
+          await pipelineTracker.buildSuccess(tk);
+        }
         return {
           content: [
             {
@@ -182,6 +204,9 @@ export function registerJenkinsBuildTools(mcpServer) {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         logger.error('jenkins_run_build.failed', { message });
+        if (tk) {
+          await pipelineTracker.fail(tk, `Jenkins build: ${message}`);
+        }
         return {
           content: [{ type: 'text', text: formatToolJson({ error: true, message }) }],
           isError: true,

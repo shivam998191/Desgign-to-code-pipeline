@@ -1,4 +1,4 @@
-import { PIPELINE_STEPS, pipelineStepLabel } from '../lib/pipeline'
+import { PIPELINE_STEPS, statusLineFromTask } from '../lib/pipeline'
 import type { Task } from '../types/task'
 import { useTaskLogs } from '../hooks/useTaskLogs'
 import { useTaskDashboardStore } from '../hooks/useTaskDashboardStore'
@@ -6,8 +6,10 @@ import { LogsViewer } from './LogsViewer'
 import { ProgressBar } from './ProgressBar'
 import { StatusBadge } from './StatusBadge'
 
-function repoSlugFromName(name: string): string {
-  const slug = name
+function repoSlugFromTask(task: Task): string {
+  const r = task.repository?.trim()
+  if (r) return r
+  const slug = task.name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
@@ -29,17 +31,32 @@ export function TaskDetailsPanel({ task }: { task: Task | null }) {
 function TaskDetailsBody({ task }: { task: Task }) {
   const { lines, loading, error } = useTaskLogs(task)
   const retryTask = useTaskDashboardStore((s) => s.retryTask)
+  const refreshTasks = useTaskDashboardStore((s) => s.refreshTasks)
 
-  const repo = repoSlugFromName(task.name)
-  const prUrl =
-    task.status === 'completed'
-      ? `https://github.com/org/${repo}/pull/${Math.abs(hash(task.id) % 9000) + 1000}`
-      : null
+  const repo = repoSlugFromTask(task)
+  const prUrl = task.prUrl?.trim() ? task.prUrl.trim() : null
+
+  const stageRows =
+    task.stages && task.stages.length > 0
+      ? task.stages
+      : PIPELINE_STEPS.map((label, i) => ({
+          id: `fallback-${i}`,
+          label,
+          status: 'PENDING' as const,
+        }))
 
   const stepIndex = (() => {
-    const n = PIPELINE_STEPS.length
-    if (task.status === 'completed') return n
-    if (task.status === 'failed') return Math.min(n, Math.max(1, Math.ceil((task.progress / 100) * n)))
+    const n = stageRows.length
+    if (task.status === 'completed' || task.pipelineStatus === 'CLOSED') return n
+    if (task.status === 'failed') {
+      const failedIdx = stageRows.findIndex((s) => s.status === 'FAILED')
+      if (failedIdx >= 0) return Math.min(n, failedIdx + 1)
+      return Math.min(n, Math.max(1, Math.ceil((task.progress / 100) * n)))
+    }
+    const inProg = stageRows.findIndex((s) => s.status === 'IN_PROGRESS')
+    if (inProg >= 0) return inProg + 1
+    const firstPending = stageRows.findIndex((s) => s.status === 'PENDING')
+    if (firstPending >= 0) return Math.min(n, firstPending + 1)
     return Math.min(n, Math.max(1, Math.ceil((task.progress / 100) * n)))
   })()
 
@@ -55,8 +72,18 @@ function TaskDetailsBody({ task }: { task: Task }) {
             <span className="font-mono font-medium text-slate-800">{repo}</span>
           </p>
           <p className="flex items-center gap-2">
-            <span className="text-slate-500">Status:</span> <StatusBadge status={task.status} />
+            <span className="text-slate-500">Status:</span>{' '}
+            <StatusBadge
+              status={task.status}
+              label={task.pipelineStatus === 'CLOSED' ? 'Closed' : undefined}
+            />
           </p>
+          {task.jiraStatus ? (
+            <p>
+              <span className="text-slate-500">Jira workflow:</span>{' '}
+              <span className="font-medium text-slate-800">{task.jiraStatus}</span>
+            </p>
+          ) : null}
           <p>
             <span className="text-slate-500">Job ID:</span>{' '}
             <span className="font-mono font-medium text-slate-800">{shortId(task.id)}</span>
@@ -68,34 +95,44 @@ function TaskDetailsBody({ task }: { task: Task }) {
         <div className="rounded-xl border border-slate-200 bg-[#F5F7F9] p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#002E7E]">Current stage</p>
           <ol className="mt-3 grid gap-2 sm:grid-cols-2">
-            {PIPELINE_STEPS.map((label, idx) => {
-              const done = task.status === 'completed' || idx < stepIndex - 1
-              const current = task.status !== 'completed' && idx === stepIndex - 1
+            {stageRows.map((row, idx) => {
+              const done =
+                row.status === 'SUCCESS' ||
+                row.status === 'FAILED' ||
+                task.pipelineStatus === 'CLOSED' ||
+                task.status === 'completed' ||
+                idx < stepIndex - 1
+              const failed = row.status === 'FAILED'
+              const current =
+                task.status !== 'completed' &&
+                task.pipelineStatus !== 'CLOSED' &&
+                !failed &&
+                idx === stepIndex - 1
               return (
-                <li key={label} className="flex items-center gap-2 text-sm text-slate-800">
+                <li key={row.id} className="flex items-center gap-2 text-sm text-slate-800">
                   <span
                     className={[
                       'inline-flex h-5 w-5 items-center justify-center rounded-full border text-[11px]',
-                      done
-                        ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                        : current
-                          ? 'border-[#00BAF2] bg-sky-50 text-[#002E7E]'
-                          : 'border-slate-200 bg-white text-slate-400',
+                      failed
+                        ? 'border-rose-300 bg-rose-50 text-rose-700'
+                        : done
+                          ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                          : current
+                            ? 'border-[#00BAF2] bg-sky-50 text-[#002E7E]'
+                            : 'border-slate-200 bg-white text-slate-400',
                     ].join(' ')}
                     aria-hidden
                   >
-                    {done ? '✓' : ''}
+                    {failed ? '!' : done ? '✓' : ''}
                   </span>
-                  <span className={done || current ? 'font-medium' : 'text-slate-500'}>{label}</span>
+                  <span className={done || current ? 'font-medium' : 'text-slate-500'}>{row.label}</span>
                 </li>
               )
             })}
           </ol>
           <div className="mt-4">
             <ProgressBar value={task.progress} />
-            <p className="mt-2 text-sm text-slate-700">
-              {pipelineStepLabel(task.progress, task.status)}
-            </p>
+            <p className="mt-2 text-sm text-slate-700">{statusLineFromTask(task)}</p>
           </div>
         </div>
 
@@ -118,9 +155,7 @@ function TaskDetailsBody({ task }: { task: Task }) {
                 <button
                   type="button"
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-                  onClick={() => {
-                    alert('Re-sync will call the MCP server when the backend exposes it.')
-                  }}
+                  onClick={() => void refreshTasks()}
                 >
                   Re-sync
                 </button>
@@ -153,8 +188,10 @@ function TaskDetailsBody({ task }: { task: Task }) {
           <p>
             <span className="text-slate-500">Deployment status:</span>{' '}
             <span className="font-semibold text-[#002E7E]">
-              {task.status === 'completed'
-                ? 'Deployed'
+              {task.pipelineStatus === 'CLOSED' || task.status === 'completed'
+                ? task.pipelineStatus === 'CLOSED'
+                  ? 'Build complete (closed)'
+                  : 'Deployed'
                 : task.status === 'failed'
                   ? 'Failed'
                   : 'Pending deployment…'}
@@ -166,7 +203,7 @@ function TaskDetailsBody({ task }: { task: Task }) {
               className="rounded-lg bg-[#00BAF2] px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#00a8d9]"
               onClick={() => void retryTask(task.id)}
             >
-              Retry (mock)
+              Retry pipeline
             </button>
           ) : null}
         </div>
@@ -178,10 +215,4 @@ function TaskDetailsBody({ task }: { task: Task }) {
 function shortId(id: string): string {
   const compact = id.replace(/[^a-zA-Z0-9]/g, '')
   return compact.slice(0, 10) || id.slice(0, 10)
-}
-
-function hash(s: string): number {
-  let h = 0
-  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) | 0
-  return Math.abs(h)
 }

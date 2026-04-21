@@ -18,9 +18,6 @@ export function useTaskLogs(task: Task | null): {
   const taskId = task?.id ?? null
   const taskStatus = task?.status ?? null
 
-  const active =
-    taskStatus === 'pending' || taskStatus === 'running' || taskStatus === 'failed'
-
   useEffect(() => {
     if (!taskId) {
       const handle = window.requestAnimationFrame(() => {
@@ -51,21 +48,15 @@ export function useTaskLogs(task: Task | null): {
 
     void pull(true)
 
-    if (!active) {
-      return () => {
-        cancelled = true
-      }
-    }
-
     const intervalId = window.setInterval(() => {
       void pull(false)
-    }, 900)
+    }, 10_000)
 
     return () => {
       cancelled = true
       window.clearInterval(intervalId)
     }
-  }, [taskId, taskStatus, active])
+  }, [taskId, taskStatus])
 
   return { lines, loading, error }
 }

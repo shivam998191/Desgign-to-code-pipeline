@@ -1,29 +1,40 @@
 import type { TaskAPI } from '../types/taskApi'
 import { MockTaskService } from '../mocks/mockTaskService'
+import { HttpTaskService, httpRetryFailedTask } from './httpTaskService'
 
 /**
  * Single composition root for task data access.
- * Replace `MockTaskService` with an HTTP/WebSocket client that implements `TaskAPI`.
+ * Set `VITE_PIPELINE_MOCK=true` to use the in-browser mock service instead of the REST API.
  */
-let singleton: MockTaskService | null = null
+let singleton: MockTaskService | HttpTaskService | null = null
 
 export function getTaskService(): TaskAPI {
-  if (!singleton) singleton = new MockTaskService()
+  if (!singleton) {
+    const useMock = import.meta.env.VITE_PIPELINE_MOCK === 'true'
+    singleton = useMock ? new MockTaskService() : new HttpTaskService()
+  }
   return singleton
 }
 
-/** Mock-only helper until `TaskAPI` gains a first-class retry operation. */
 export async function retryFailedTask(id: string): Promise<void> {
   const svc = getTaskServiceInternal()
+  if (svc instanceof HttpTaskService) {
+    await httpRetryFailedTask(id)
+    return
+  }
   await svc.retryFailedTask(id)
 }
 
-/** Toggle for UI demos of list error handling. */
+/** Toggle for UI demos of list error handling (mock service only). */
 export function setFailNextTaskListFetch(shouldFail: boolean): void {
-  getTaskServiceInternal().failNextList = shouldFail
+  const svc = getTaskServiceInternal()
+  if (svc instanceof MockTaskService) svc.failNextList = shouldFail
 }
 
-function getTaskServiceInternal(): MockTaskService {
-  if (!singleton) singleton = new MockTaskService()
+function getTaskServiceInternal(): MockTaskService | HttpTaskService {
+  if (!singleton) {
+    const useMock = import.meta.env.VITE_PIPELINE_MOCK === 'true'
+    singleton = useMock ? new MockTaskService() : new HttpTaskService()
+  }
   return singleton
 }

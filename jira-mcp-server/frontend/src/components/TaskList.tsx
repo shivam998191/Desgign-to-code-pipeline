@@ -10,7 +10,7 @@ const FILTERS: { id: TaskFilter; label: string }[] = [
   { id: 'completed', label: 'Completed' },
 ]
 
-export function TaskList() {
+export function TaskList({ onSelectTask }: { onSelectTask?: (id: string) => void }) {
   const [draftName, setDraftName] = useState('')
   const taskOrder = useTaskDashboardStore((s) => s.taskOrder)
   const tasksById = useTaskDashboardStore((s) => s.tasksById)
@@ -79,7 +79,7 @@ export function TaskList() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') void onCreate()
             }}
-            placeholder="New task name…"
+            placeholder="Jira key e.g. IPG-1096"
             className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none ring-[#00BAF2]/30 placeholder:text-slate-400 focus:ring-2"
           />
           <button
@@ -104,7 +104,10 @@ export function TaskList() {
               key={task.id}
               task={task}
               active={task.id === selectedTaskId}
-              onSelect={selectTask}
+              onSelect={(id) => {
+                if (onSelectTask) onSelectTask(id)
+                else selectTask(id)
+              }}
             />
           ))
         )}

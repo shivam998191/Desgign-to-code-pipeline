@@ -167,6 +167,7 @@ export const useTaskDashboardStore = createWithEqualityFn<TaskDashboardStore>()(
     set({ error: null })
     try {
       await retryFailedTask(id)
+      await get().refreshTasks()
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : 'Retry failed.',

@@ -27,12 +27,15 @@ export function TaskCard({
           <p className="truncate font-mono text-xs font-medium text-[#002E7E]">{task.id}</p>
           <p className="mt-1 truncate text-sm font-semibold text-slate-800">{task.name}</p>
         </div>
-        <StatusBadge status={task.status} />
+        <StatusBadge
+          status={task.status}
+          label={task.pipelineStatus === 'CLOSED' ? 'Closed' : undefined}
+        />
       </div>
       <div className="mt-3">
         <ProgressBar value={task.progress} />
         <p className="mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">
-          [{task.status}]
+          [{(task.pipelineStatus ?? task.status).toString().toUpperCase()}]
         </p>
       </div>
     </button>

@@ -1,7 +1,22 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 import { TaskDetailsPanel } from '../components/TaskDetailsPanel'
 import { TaskList } from '../components/TaskList'
 import { useTaskDashboardStore } from '../hooks/useTaskDashboardStore'
+import { getTaskService } from '../services/taskService'
+
+function pathTaskId(): string | null {
+  const raw = window.location.pathname.replace(/^\/+/, '').trim()
+  if (!raw) return null
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
+function pathForTask(id: string): string {
+  return `/${encodeURIComponent(id)}`
+}
 
 export function DashboardScreen() {
   const initialize = useTaskDashboardStore((s) => s.initialize)
@@ -10,13 +25,97 @@ export function DashboardScreen() {
   const clearError = useTaskDashboardStore((s) => s.clearError)
   const selectedTaskId = useTaskDashboardStore((s) => s.selectedTaskId)
   const tasksById = useTaskDashboardStore((s) => s.tasksById)
+  const taskOrder = useTaskDashboardStore((s) => s.taskOrder)
+  const selectTask = useTaskDashboardStore((s) => s.selectTask)
+  const upsertTask = useTaskDashboardStore((s) => s.upsertTask)
   const loading = useTaskDashboardStore((s) => s.loading)
   const error = useTaskDashboardStore((s) => s.error)
   const initialized = useTaskDashboardStore((s) => s.initialized)
 
+  const navigateToTask = useCallback(
+    (taskId: string, replace = false) => {
+      if (!taskId) return
+      const target = pathForTask(taskId)
+      if (window.location.pathname !== target) {
+        if (replace) window.history.replaceState({}, '', target)
+        else window.history.pushState({}, '', target)
+      }
+      selectTask(taskId)
+    },
+    [selectTask],
+  )
+
   useEffect(() => {
     void initialize()
   }, [initialize])
+
+  useEffect(() => {
+    if (!initialized) return
+
+    const fromPath = pathTaskId()
+    if (fromPath && tasksById[fromPath]) {
+      if (selectedTaskId !== fromPath) selectTask(fromPath)
+      return
+    }
+
+    const first = taskOrder[0] ?? null
+    if (!first) {
+      if (selectedTaskId) selectTask(null)
+      return
+    }
+
+    if (!fromPath) {
+      navigateToTask(first, true)
+      return
+    }
+
+    if (selectedTaskId !== first) selectTask(first)
+  }, [initialized, navigateToTask, selectTask, selectedTaskId, taskOrder, tasksById])
+
+  useEffect(() => {
+    const onPopState = () => {
+      const fromPath = pathTaskId()
+      if (fromPath) {
+        if (tasksById[fromPath]) selectTask(fromPath)
+      } else {
+        selectTask(taskOrder[0] ?? null)
+      }
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [selectTask, taskOrder, tasksById])
+
+  useEffect(() => {
+    if (!selectedTaskId) return
+
+    let cancelled = false
+    const pull = async () => {
+      try {
+        const latest = await getTaskService().getTaskById(selectedTaskId)
+        if (!cancelled) upsertTask(latest)
+      } catch {
+        // Keep polling loop resilient even on transient API errors.
+      }
+    }
+
+    void pull()
+    const timer = window.setInterval(() => {
+      void pull()
+    }, 10_000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [selectedTaskId, upsertTask])
+
+  useEffect(() => {
+    if (!selectedTaskId) return
+    const target = pathForTask(selectedTaskId)
+    if (window.location.pathname !== target) {
+      window.history.replaceState({}, '', target)
+    }
+  }, [selectedTaskId])
 
   const selectedTask = selectedTaskId ? tasksById[selectedTaskId] ?? null : null
 
@@ -33,7 +132,9 @@ export function DashboardScreen() {
           />
           <div className="hidden min-w-0 border-l border-slate-200 pl-3 sm:block">
             <p className="truncate text-sm font-semibold text-[#002E7E]">DevOps Console</p>
-            <p className="truncate text-xs text-slate-500">Pipelines · mock API</p>
+            <p className="truncate text-xs text-slate-500">
+              Pipelines - {import.meta.env.VITE_PIPELINE_MOCK === 'true' ? 'mock API' : 'Firestore API'}
+            </p>
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -51,7 +152,7 @@ export function DashboardScreen() {
             onClick={() => void refreshTasks()}
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#002E7E] shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? 'Refreshing…' : 'Job History'}
+            {loading ? 'Refreshing...' : 'Job History'}
           </button>
           <button
             type="button"
@@ -106,12 +207,12 @@ export function DashboardScreen() {
 
       <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <div className="flex min-h-0 w-full shrink-0 border-slate-200 bg-white lg:h-auto lg:w-[min(380px,42vw)] lg:border-r lg:shadow-sm">
-          <TaskList />
+          <TaskList onSelectTask={(id) => navigateToTask(id)} />
         </div>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col p-4 lg:p-6">
           {!initialized && loading ? (
             <div className="flex min-h-[40vh] flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white p-10 text-sm text-slate-500 shadow-sm">
-              Loading tasks…
+              Loading tasks...
             </div>
           ) : (
             <TaskDetailsPanel task={selectedTask} />

@@ -22,13 +22,13 @@ const STYLES: Record<
   },
 }
 
-export function StatusBadge({ status }: { status: TaskStatus }) {
+export function StatusBadge({ status, label }: { status: TaskStatus; label?: string }) {
   const cfg = STYLES[status]
   return (
     <span
       className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold tracking-wide uppercase ${cfg.className}`}
     >
-      {cfg.label}
+      {label ?? cfg.label}
     </span>
   )
 }

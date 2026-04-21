@@ -1,10 +1,15 @@
+import type { Task } from '../types/task'
+
+/** Fallback steps when the API has not returned `task.stages` yet. */
 export const PIPELINE_STEPS = [
   'Fetch Jira Ticket',
-  'Extract Figma Design',
-  'Generate Code',
-  'Create Pull Request',
-  'Deploy Changes',
-  'Post-deploy verification',
+  'Analyze Jira Info',
+  'Development',
+  'Commit',
+  'Raise PR',
+  'Merged PR',
+  'Build',
+  'Deploy',
 ] as const
 
 export function pipelineStepLabel(progress: number, status: 'failed' | 'completed' | string): string {
@@ -13,4 +18,12 @@ export function pipelineStepLabel(progress: number, status: 'failed' | 'complete
   if (status === 'failed') return 'Pipeline stopped due to an error.'
   const step = Math.min(n, Math.max(1, Math.ceil((progress / 100) * n)))
   return `Step ${step} of ${n}: ${PIPELINE_STEPS[step - 1]}`
+}
+
+export function statusLineFromTask(task: Task): string {
+  const d = task.currentStatusDescription?.trim()
+  if (d) return d
+  if (task.status === 'failed') return 'Pipeline stopped due to an error.'
+  if (task.pipelineStatus === 'CLOSED') return 'Build completed successfully — ticket closed.'
+  return pipelineStepLabel(task.progress, task.status)
 }
